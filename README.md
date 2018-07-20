@@ -18,15 +18,15 @@ Edit faces configuration:
 ```yaml
 ---
 cameraId: 0
-subscriptionKey: [check here](https://azure.microsoft.com/en-us/services/cognitive-services/face/)
-uriBase: [check here](https://azure.microsoft.com/en-us/services/cognitive-services/face/)
+subscriptionKey: [check here: https://azure.microsoft.com/en-us/services/cognitive-services/face/]
+uriBase: [check here: https://azure.microsoft.com/en-us/services/cognitive-services/face/]
 uriParams: ?returnFaceAttributes=age,gender,headPose,smile,facialHair,glasses,emotion,hair,makeup,occlusion,accessories,blur,exposure,noise
 capturesPerMinute: 20
 ```
 
 Run faces:
 ```
-# dist/faces[.exe] faces.yaml
+# dist/faces[.exe] config.yaml
 ```
 
 ## Links
