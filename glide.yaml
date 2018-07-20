@@ -1,0 +1,5 @@
+package: github.com/marcsauter/faces
+import:
+- package: gocv.io/x/gocv
+- package: github.com/pkg/errors
+  version: ~0.8.0
