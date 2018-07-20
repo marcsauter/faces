@@ -13,9 +13,9 @@ tasks:
     sources:
       - main.go
     generates:
-      - dist/faces
+      - dist/faces{{exeExt}}
     cmds:
-      - go build -o dist/faces
+      - go build -o dist/faces{{exeExt}}
 
   clean:
     cmds:
