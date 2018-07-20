@@ -11,40 +11,50 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
 	"gocv.io/x/gocv"
+	yaml "gopkg.in/yaml.v2"
 )
 
 const (
-	subscriptionKey = "8d2d3fb70c3e4540aec1cd59534709c2"
-	uriBase         = "https://westcentralus.api.cognitive.microsoft.com/face/v1.0/detect"
-	params          = "?returnFaceAttributes=age,gender,headPose,smile,facialHair," +
-		"glasses,emotion,hair,makeup,occlusion,accessories,blur,exposure,noise"
-	uri               = uriBase + params
-	capturesPerMinute = 20
+	DefaultCapturesPerMinute = 20
 )
+
+type configuration struct {
+	CameraID          int    `yaml:"cameraId"`
+	SubscriptionKey   string `yaml:"subscriptionKey"`
+	URIBase           string `yaml:"uriBase"`
+	URIParams         string `yaml:"uriParams"`
+	CapturesPerMinute int    `yaml:"capturesPerMinute"`
+}
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Printf("Usage: %s [camera ID]\n", filepath.Base(os.Args[0]))
+		fmt.Printf("Usage: %s config.yaml\n", filepath.Base(os.Args[0]))
 		return
 	}
 
-	// parse args
-	deviceID, err := strconv.Atoi(os.Args[1])
+	cfg := configuration{}
+
+	data, err := ioutil.ReadFile(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		log.Fatal(err)
+	}
+	if cfg.CapturesPerMinute == 0 {
+		cfg.CapturesPerMinute = DefaultCapturesPerMinute
 	}
 
-	// open webcam
-	webcam, err := gocv.VideoCaptureDevice(int(deviceID))
+	// open camera
+	camera, err := gocv.VideoCaptureDevice(cfg.CameraID)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer webcam.Close()
+	defer camera.Close()
 
 	// open display window
 	window := gocv.NewWindow("Face Detect")
@@ -57,20 +67,20 @@ func main() {
 	// color for the rect when faces detected
 	blue := color.RGBA{0, 0, 255, 0}
 
-	fmt.Printf("start reading camera device: %v\n", deviceID)
+	fmt.Printf("start reading camera device: %v\n", cfg.CameraID)
 	for {
 		log.Println("new capture ...")
-		if ok := webcam.Read(&img); !ok {
-			fmt.Printf("cannot read device %d\n", deviceID)
+		if ok := camera.Read(&img); !ok {
+			fmt.Printf("cannot read device %d\n", cfg.CameraID)
 			return
 		}
 		if img.Empty() {
 			continue
 		}
 
-		timer := time.NewTimer(time.Duration(60/capturesPerMinute) * time.Second)
+		timer := time.NewTimer(time.Duration(60/cfg.CapturesPerMinute) * time.Second)
 
-		detectedFaces, err := analyze(&img)
+		detectedFaces, err := analyze(&cfg, &img)
 		if err != nil {
 			log.Println("ERROR:", err)
 		}
@@ -96,20 +106,20 @@ func main() {
 	}
 }
 
-func analyze(img *gocv.Mat) (faces, error) {
+func analyze(cfg *configuration, img *gocv.Mat) (faces, error) {
 
-	png, err := gocv.IMEncode(gocv.JPEGFileExt, *img)
+	jpg, err := gocv.IMEncode(gocv.JPEGFileExt, *img)
 	if err != nil {
 		return nil, errors.Wrap(err, "IMEncode failed")
 	}
 
-	req, err := http.NewRequest("POST", uri, bytes.NewReader(png))
+	req, err := http.NewRequest("POST", cfg.URIBase+cfg.URIParams, bytes.NewReader(jpg))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Add("Content-Type", "application/octet-stream")
-	req.Header.Add("Ocp-Apim-Subscription-Key", subscriptionKey)
+	req.Header.Add("Ocp-Apim-Subscription-Key", cfg.SubscriptionKey)
 
 	/*
 		requestDump, err := httputil.DumpRequest(req, false)

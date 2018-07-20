@@ -1,0 +1,22 @@
+version: '2'
+
+tasks:
+  deps:
+    generates:
+      - vendor/*
+    cmds:
+      - glide install
+
+  build:
+    deps:
+      - deps
+    sources:
+      - main.go
+    generates:
+      - dist/faces
+    cmds:
+      - go build -o dist/faces
+
+  clean:
+    cmds:
+      - rm -rf dist/*
