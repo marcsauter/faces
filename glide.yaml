@@ -5,3 +5,11 @@ import:
   version: ~0.8.0
 - package: gopkg.in/yaml.v2
   version: ~2.2.1
+- package: github.com/anthonynsimon/bild
+  version: ~0.10.0
+  subpackages:
+  - '...'
+- package: github.com/golang/freetype
+- package: golang.org/x/image
+  subpackages:
+  - '...'

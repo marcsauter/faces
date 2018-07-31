@@ -5,29 +5,72 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"image/color"
+	"image/draw"
+	"image/jpeg"
+
+	"github.com/anthonynsimon/bild/blend"
+	"github.com/anthonynsimon/bild/imgio"
+	"github.com/golang/freetype"
+	"github.com/golang/freetype/truetype"
 	"github.com/pkg/errors"
 	"gocv.io/x/gocv"
+	"golang.org/x/image/font/gofont/gobold"
 	yaml "gopkg.in/yaml.v2"
 )
 
+// Constants
 const (
 	DefaultCapturesPerMinute = 20
+	FontSize                 = 24.0
+)
+
+var (
+	red       = color.RGBA{255, 0, 0, 255}
+	blue      = color.RGBA{0, 0, 255, 255}
+	green     = color.RGBA{0, 255, 0, 255}
+	yellow    = color.RGBA{255, 255, 0, 255}
+	white     = color.RGBA{255, 255, 255, 255}
+	black     = color.RGBA{0, 0, 0, 255}
+	rectColor = white
+	textColor = white
+	ttf       = gobold.TTF
+	font      *truetype.Font
+	saveImage bool
 )
 
 type configuration struct {
-	CameraID          int    `yaml:"cameraId"`
-	SubscriptionKey   string `yaml:"subscriptionKey"`
-	URIBase           string `yaml:"uriBase"`
-	URIParams         string `yaml:"uriParams"`
-	CapturesPerMinute int    `yaml:"capturesPerMinute"`
+	CameraID            int    `yaml:"cameraId"`
+	SubscriptionKey     string `yaml:"subscriptionKey"`
+	URIBase             string `yaml:"uriBase"`
+	URIParams           string `yaml:"uriParams"`
+	CapturesPerMinute   int    `yaml:"capturesPerMinute"`
+	FrameStrenght       int    `yaml:"frameStrenght"`
+	SaveImagePath       string `yaml:"saveImagePath"`
+	SaveImageMax        int    `yaml:"saveImageMax"`
+	IconMale            string `yaml:"iconMale"`
+	IconFemale          string `yaml:"iconFemale"`
+	IconReadingGlasses  string `yaml:"iconReadingGlasses"`
+	IconSunGlasses      string `yaml:"iconSunGlasses"`
+	IconSwimmingGoggles string `yaml:"iconSwimmingGoggles"`
+}
+
+func init() {
+	var err error
+	font, err = truetype.Parse(ttf)
+	if err != nil {
+		log.Fatal(errors.Wrap(err, "could not parse font"))
+	}
 }
 
 func main() {
@@ -36,8 +79,8 @@ func main() {
 		return
 	}
 
+	// read configuration
 	cfg := configuration{}
-
 	data, err := ioutil.ReadFile(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
@@ -45,14 +88,29 @@ func main() {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		log.Fatal(err)
 	}
+
+	icons, err := readIconImages(&cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// apply defaults if necessary
 	if cfg.CapturesPerMinute == 0 {
 		cfg.CapturesPerMinute = DefaultCapturesPerMinute
+	}
+	if cfg.SaveImageMax == 0 {
+		cfg.SaveImageMax = 100
+	}
+
+	// check ImagePath
+	if fi, err := os.Stat(cfg.SaveImagePath); err == nil && fi.IsDir() {
+		saveImage = true
 	}
 
 	// open camera
 	camera, err := gocv.VideoCaptureDevice(cfg.CameraID)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(errors.Wrap(err, "capture device"))
 	}
 	defer camera.Close()
 
@@ -61,44 +119,93 @@ func main() {
 	defer window.Close()
 
 	// prepare image matrix
-	img := gocv.NewMat()
-	defer img.Close()
-
-	// color for the rect when faces detected
-	blue := color.RGBA{0, 0, 255, 0}
+	camImage := gocv.NewMat()
+	defer camImage.Close()
 
 	fmt.Printf("start reading camera device: %v\n", cfg.CameraID)
+	var count int
 	for {
 		log.Println("new capture ...")
-		if ok := camera.Read(&img); !ok {
+		if ok := camera.Read(&camImage); !ok {
 			fmt.Printf("cannot read device %d\n", cfg.CameraID)
 			return
 		}
-		if img.Empty() {
+		if camImage.Empty() {
+			continue
+		}
+		img, err := camImage.ToImage()
+		if err != nil {
+			log.Println("ERROR:", errors.Wrap(err, "to image"))
 			continue
 		}
 
-		timer := time.NewTimer(time.Duration(60/cfg.CapturesPerMinute) * time.Second)
-
-		detectedFaces, err := analyze(&cfg, &img)
+		detectedFaces, err := analyze(&cfg, img)
 		if err != nil {
 			log.Println("ERROR:", err)
+			continue
 		}
 
-		// draw a rectangle around each face on the original image,
-		// along with text informations
+		bg := img.(*image.RGBA)
+		rect := image.NewRGBA(bg.Bounds())
+		icon := image.NewRGBA(bg.Bounds())
+		text := image.NewRGBA(bg.Bounds())
+
+		timer := time.NewTimer(time.Duration(60/cfg.CapturesPerMinute) * time.Second)
+		// draw a rectangle around each face on the original image along with informations
 		for _, f := range detectedFaces {
-			r := f.FaceRectangle
-			gocv.Rectangle(&img, image.Rect(r.Left, r.Top, r.Left+r.Width, r.Top+r.Height), blue, 3)
-			a := f.FaceAttributes
-			text := fmt.Sprintf("%d years old %s, wearing %s and looks %s", int(a.Age), a.Gender, a.Glasses, a.Emotion)
-			//size := gocv.GetTextSize("Human", gocv.FontHersheyPlain, 1.2, 2)
-			pt := image.Pt(r.Left, r.Top-5)
-			gocv.PutText(&img, text, pt, gocv.FontHersheyPlain, 1.2, blue, 2)
-			fmt.Println("> face detected:", text, f.FaceID) // write to stdout
+			fr := f.FaceRectangle
+
+			// draw rectangle around detected face
+			drawRect(rect, fr.Left, fr.Top, fr.Left+fr.Width, fr.Top+fr.Height, cfg.FrameStrenght, rectColor)
+
+			// add gender icon
+			gender := icons[strings.ToLower(f.FaceAttributes.Gender)]
+			sr := gender.Bounds()
+			dp := image.Point{fr.Left, fr.Top - sr.Dy() - cfg.FrameStrenght}
+			draw.Draw(icon, image.Rectangle{dp, dp.Add(sr.Size())}, gender, sr.Min, draw.Src)
+
+			// add glasses icon
+			if f.FaceAttributes.Glasses != "NoGlasses" {
+				glasses := icons[strings.ToLower(f.FaceAttributes.Glasses)]
+				sr := glasses.Bounds()
+				dp := image.Point{fr.Left + fr.Width - sr.Dx(), fr.Top - sr.Dy() - cfg.FrameStrenght}
+				draw.Draw(icon, image.Rectangle{dp, dp.Add(sr.Size())}, glasses, sr.Min, draw.Src)
+			}
+
+			// add text - age and emotion
+			err = addLabel(text, fr.Left, fr.Top+fr.Height, textColor, fmt.Sprintf("%.0f yo looks %s", f.FaceAttributes.Age, f.FaceAttributes.Emotion.String()))
+			if err != nil {
+				log.Println("ERROR:", errors.Wrap(err, "could not add label"))
+			}
+
+			// print to console
+			fmt.Printf("%.0f yo %s with %s looks %s\n", f.FaceAttributes.Age, f.FaceAttributes.Gender, f.FaceAttributes.Glasses, f.FaceAttributes.Emotion.String())
 		}
 
-		window.IMShow(img)
+		// put layers together
+		var res image.Image
+		res = blend.Add(bg, rect)     // rectangle layer
+		res = blend.Normal(res, icon) // icon layer
+		res = blend.Add(res, text)    // text layer
+
+		// save image
+		if saveImage && len(detectedFaces) > 0 {
+			count++
+			err := imgio.Save(path.Join(cfg.SaveImagePath, fmt.Sprintf("%06d.jpg", count)), res, imgio.JPEG)
+			if err != nil {
+				log.Println("ERROR:", errors.Wrap(err, "could not save image"))
+			}
+			if count == cfg.SaveImageMax {
+				count = 0
+			}
+		}
+
+		// show image
+		winImage, err := gocv.ImageToMatRGBA(res)
+		if err != nil {
+			log.Fatal(errors.Wrap(err, "convert jpg to mat"))
+		}
+		window.IMShow(winImage)
 		if window.WaitKey(1) >= 0 {
 			break
 		}
@@ -106,14 +213,69 @@ func main() {
 	}
 }
 
-func analyze(cfg *configuration, img *gocv.Mat) (faces, error) {
+func readIconImages(cfg *configuration) (map[string]image.Image, error) {
+	icons := make(map[string]image.Image)
 
-	jpg, err := gocv.IMEncode(gocv.JPEGFileExt, *img)
+	var r io.Reader
+	var err error
+
+	r, err = os.Open(cfg.IconMale)
 	if err != nil {
-		return nil, errors.Wrap(err, "IMEncode failed")
+		return nil, errors.Wrapf(err, "read icon %s", cfg.IconMale)
+	}
+	icons["male"], _, err = image.Decode(r)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconMale)
 	}
 
-	req, err := http.NewRequest("POST", cfg.URIBase+cfg.URIParams, bytes.NewReader(jpg))
+	r, err = os.Open(cfg.IconFemale)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read icon %s", cfg.IconFemale)
+	}
+	icons["female"], _, err = image.Decode(r)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconFemale)
+	}
+
+	r, err = os.Open(cfg.IconReadingGlasses)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read icon %s", cfg.IconReadingGlasses)
+	}
+	icons["readingglasses"], _, err = image.Decode(r)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconReadingGlasses)
+	}
+
+	r, err = os.Open(cfg.IconSunGlasses)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read icon %s", cfg.IconSunGlasses)
+	}
+	icons["sunglasses"], _, err = image.Decode(r)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconSunGlasses)
+	}
+
+	r, err = os.Open(cfg.IconSwimmingGoggles)
+	if err != nil {
+		return nil, errors.Wrapf(err, "read icon %s", cfg.IconSwimmingGoggles)
+	}
+	icons["swimminggoggles"], _, err = image.Decode(r)
+	if err != nil {
+		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconSwimmingGoggles)
+	}
+
+	return icons, nil
+}
+
+// analyze image using Face API
+func analyze(cfg *configuration, img image.Image) (faces, error) {
+	var buf bytes.Buffer
+	err := jpeg.Encode(&buf, img, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", cfg.URIBase+cfg.URIParams, &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +324,48 @@ func analyze(cfg *configuration, img *gocv.Mat) (faces, error) {
 	detectedFaces := faces{}
 	err = json.Unmarshal(data, &detectedFaces)
 	return detectedFaces, nil
+}
+
+// drawHLine draws a horizontal line
+func drawHLine(img draw.Image, x1, y, x2, thick int, c color.Color) {
+	for ; x1 <= x2; x1++ {
+		img.Set(x1, y, c)
+		for t := 0; t < thick; t++ {
+			img.Set(x1, y-t, c)
+		}
+	}
+}
+
+// drawVLine draws a veritcal line
+func drawVLine(img draw.Image, x, y1, y2, thick int, c color.Color) {
+	for ; y1 <= y2; y1++ {
+		img.Set(x, y1, c)
+		for t := 0; t < thick; t++ {
+			img.Set(x-t, y1, c)
+		}
+	}
+}
+
+// drawRect draws a rectangle with drawHLine and drawVLine
+func drawRect(img draw.Image, x1, y1, x2, y2, thick int, c color.Color) {
+	drawHLine(img, x1, y1, x2, thick, c)
+	drawHLine(img, x1, y2, x2, thick, c)
+	drawVLine(img, x1, y1, y2, thick, c)
+	drawVLine(img, x2, y1, y2, thick, c)
+}
+
+// addLabel
+func addLabel(img draw.Image, x, y int, c color.Color, label string) error {
+	fc := freetype.NewContext()
+	fc.SetSrc(image.NewUniform(c))
+	fc.SetDst(img)
+	fc.SetFont(font)
+	fc.SetFontSize(FontSize)
+	fc.SetClip(img.Bounds())
+	fc.SetDPI(72)
+	pt := freetype.Pt(x, y+int(fc.PointToFixed(FontSize)>>6))
+	_, err := fc.DrawString(label, pt)
+	return err
 }
 
 // Face API V1.0 response data model
@@ -218,7 +422,7 @@ func (e emotion) String() string {
 			max = v
 		}
 	}
-	return fmt.Sprintf("%s (%f)", res, m[res])
+	return fmt.Sprintf("%s", res)
 }
 
 type apiError struct {
