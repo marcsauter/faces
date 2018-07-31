@@ -1,11 +1,11 @@
 ---
 cameraId: 0
-subscriptionKey: cfb0ee56ce8841ce86846df6952224b9
+subscriptionKey: ...
 uriBase: https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect
 uriParams: ?returnFaceAttributes=age,gender,headPose,smile,facialHair,glasses,emotion,hair,makeup,occlusion,accessories,blur,exposure,noise
 capturesPerMinute: 15
 frameStrenght: 5
-saveImagePath: /Users/marc/Downloads
+saveImagePath: /tmp
 saveImageMax: 10
 iconMale: assets/male.jpg
 iconFemale: assets/female.jpg
