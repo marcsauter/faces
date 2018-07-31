@@ -21,12 +21,13 @@ cameraId: 0
 subscriptionKey: [check here: https://azure.microsoft.com/en-us/services/cognitive-services/face/]
 uriBase: [check here: https://azure.microsoft.com/en-us/services/cognitive-services/face/]
 uriParams: ?returnFaceAttributes=age,gender,headPose,smile,facialHair,glasses,emotion,hair,makeup,occlusion,accessories,blur,exposure,noise
-capturesPerMinute: 20
+...
 ```
+> Icon size should be around 50x50 pixels
 
 Run faces:
 ```
-# dist/faces[.exe] config.yaml
+# dist/faces[.exe] faces.yaml
 ```
 
 ## Links
