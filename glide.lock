@@ -1,25 +1,30 @@
-hash: 7ea4481168788f16ece6be3180a070c55ed46aa4ac7aa4aea597fdab4de86c54
-updated: 2018-07-31T21:17:26.022234+02:00
+hash: 119ee7fa33338c5bdd2c59dbbf129fb736735cb21d51a14df236d707ec848b34
+updated: 2018-08-14T09:38:05.614054+02:00
 imports:
 - name: github.com/anthonynsimon/bild
   version: 35fd1904d43f809ded0959922164885e25577aa2
   subpackages:
-  - '...'
   - blend
   - clone
   - fcolor
+  - imgio
   - math/f64
   - parallel
 - name: github.com/golang/freetype
   version: e2365dfdc4a05e4b8299a783240d4a7d5a65d4e4
+  subpackages:
+  - raster
+  - truetype
 - name: github.com/pkg/errors
   version: 645ef00459ed84a119197bfb8d8205042c6df63d
 - name: gocv.io/x/gocv
-  version: 0d9b22a6450a7d81761a4b763f58fb99e962ab47
+  version: 3f4d73bc6a6e20e4880c0ea208f3e80880e1c725
 - name: golang.org/x/image
   version: c73c2afc3b812cdd6385de5a50616511c4a3d458
   subpackages:
-  - '...'
+  - font
+  - font/gofont/gobold
+  - math/fixed
 - name: gopkg.in/yaml.v2
   version: 5420a8b6744d3b0345ab293f6fcba19c978f1183
 testImports: []

@@ -1,15 +1,19 @@
 package: github.com/marcsauter/faces
 import:
-- package: gocv.io/x/gocv
-- package: github.com/pkg/errors
-  version: ~0.8.0
-- package: gopkg.in/yaml.v2
-  version: ~2.2.1
 - package: github.com/anthonynsimon/bild
   version: ~0.10.0
   subpackages:
-  - '...'
+  - blend
+  - imgio
 - package: github.com/golang/freetype
+  subpackages:
+  - truetype
+- package: github.com/pkg/errors
+  version: ~0.8.0
+- package: gocv.io/x/gocv
+  version: ~0.15.0
 - package: golang.org/x/image
   subpackages:
-  - '...'
+  - font/gofont/gobold
+- package: gopkg.in/yaml.v2
+  version: ~2.2.1
