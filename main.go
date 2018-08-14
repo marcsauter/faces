@@ -211,13 +211,12 @@ func main() {
 			log.Fatal(errors.Wrap(err, "convert jpg to mat"))
 		}
 		window.IMShow(winImage)
-		if window.WaitKey(1) >= 0 {
-			break
-		}
+		window.WaitKey(1)
 
 		// wait or exit
 		select {
 		case <-exit:
+			log.Println("exit")
 			os.Exit(0)
 		case <-timer.C:
 		}
