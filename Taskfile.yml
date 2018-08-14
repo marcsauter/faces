@@ -1,0 +1,28 @@
+version: '2'
+
+tasks:
+  deps:
+    desc: install dependencies with glide
+    sources:
+      - glide.yaml
+      - glide.lock
+    generates:
+      - vendor/
+    cmds:
+      - glide install
+
+  build:
+    desc: build faces binary
+    deps:
+      - deps
+    sources:
+      - main.go
+    generates:
+      - dist/faces{{exeExt}}
+    cmds:
+      - go build -o dist/faces{{exeExt}}
+
+  clean:
+    desc: cleanup
+    cmds:
+      - rm -rf dist/*
