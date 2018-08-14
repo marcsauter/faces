@@ -10,9 +10,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"image/color"
@@ -122,6 +124,9 @@ func main() {
 	camImage := gocv.NewMat()
 	defer camImage.Close()
 
+	exit := make(chan os.Signal, 1)
+	signal.Ignore(syscall.SIGQUIT, syscall.SIGHUP)
+	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 	fmt.Printf("start reading camera device: %v\n", cfg.CameraID)
 	var count int
 	for {
@@ -209,7 +214,13 @@ func main() {
 		if window.WaitKey(1) >= 0 {
 			break
 		}
-		<-timer.C
+
+		// wait or exit
+		select {
+		case <-exit:
+			os.Exit(0)
+		case <-timer.C:
+		}
 	}
 }
 
