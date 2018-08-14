@@ -109,10 +109,17 @@ func main() {
 		saveImage = true
 	}
 
+	if err := run(cfg, icons); err != nil {
+		fmt.Fprintf(os.Stderr, "%v", err)
+		os.Exit(1)
+	}
+}
+
+func run(cfg configuration, icons map[string]image.Image) error {
 	// open camera
 	camera, err := gocv.VideoCaptureDevice(cfg.CameraID)
 	if err != nil {
-		log.Fatal(errors.Wrap(err, "capture device"))
+		return errors.Wrap(err, "capture device")
 	}
 	defer camera.Close()
 
@@ -132,8 +139,7 @@ func main() {
 	for {
 		log.Println("new capture ...")
 		if ok := camera.Read(&camImage); !ok {
-			fmt.Printf("cannot read device %d\n", cfg.CameraID)
-			return
+			return fmt.Errorf("cannot read device %d", cfg.CameraID)
 		}
 		if camImage.Empty() {
 			continue
@@ -208,7 +214,7 @@ func main() {
 		// show image
 		winImage, err := gocv.ImageToMatRGBA(res)
 		if err != nil {
-			log.Fatal(errors.Wrap(err, "convert jpg to mat"))
+			return errors.Wrap(err, "convert jpg to mat")
 		}
 		window.IMShow(winImage)
 		window.WaitKey(1)
@@ -217,8 +223,7 @@ func main() {
 		select {
 		case <-exit:
 			log.Println("exit")
-			window.Close()
-			os.Exit(0)
+			return nil
 		case <-timer.C:
 		}
 	}
