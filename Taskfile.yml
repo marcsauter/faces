@@ -2,8 +2,11 @@ version: '2'
 
 tasks:
   deps:
+    sources:
+      - glide.yaml
+      - glide.lock
     generates:
-      - vendor/*
+      - vendor/
     cmds:
       - glide install
 
