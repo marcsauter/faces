@@ -217,6 +217,7 @@ func main() {
 		select {
 		case <-exit:
 			log.Println("exit")
+			window.Close()
 			os.Exit(0)
 		case <-timer.C:
 		}
