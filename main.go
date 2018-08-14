@@ -109,6 +109,7 @@ func main() {
 		saveImage = true
 	}
 
+	fmt.Fprintf(os.Stdout, "ctrl+c to exit\n")
 	if err := run(cfg, icons); err != nil {
 		fmt.Fprintf(os.Stderr, "%v", err)
 		os.Exit(1)
