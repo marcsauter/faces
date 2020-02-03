@@ -1,7 +1,7 @@
 ---
 cameraId: 0
-subscriptionKey: ...
-uriBase: https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect
+subscriptionKey: 51f71ab6743849dc98faeca7ec8aadb3
+uriBase: https://facesapp.cognitiveservices.azure.com/face/v1.0/detect
 uriParams: ?returnFaceAttributes=age,gender,headPose,smile,facialHair,glasses,emotion,hair,makeup,occlusion,accessories,blur,exposure,noise
 capturesPerMinute: 15
 frameStrenght: 5
@@ -12,3 +12,4 @@ iconFemale: assets/female.jpg
 iconReadingGlasses: assets/reading_glasses.jpg
 iconSunGlasses: assets/sun_glasses.jpg
 iconSwimmingGoggles: assets/swimming_goggles.jpg
+debug: false

@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"os/signal"
 	"path"
@@ -65,6 +66,7 @@ type configuration struct {
 	IconReadingGlasses  string `yaml:"iconReadingGlasses"`
 	IconSunGlasses      string `yaml:"iconSunGlasses"`
 	IconSwimmingGoggles string `yaml:"iconSwimmingGoggles"`
+	Debug               bool   `yaml:"debug"`
 }
 
 func init() {
@@ -135,9 +137,21 @@ func run(cfg configuration, icons map[string]image.Image) error {
 	exit := make(chan os.Signal, 1)
 	signal.Ignore(syscall.SIGQUIT, syscall.SIGHUP)
 	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
+
 	fmt.Printf("start reading camera device: %v\n", cfg.CameraID)
+	intvl := time.Duration(60/cfg.CapturesPerMinute) * time.Second
+	timer := time.NewTimer(intvl)
 	var count int
 	for {
+		// wait or exit
+		select {
+		case <-exit:
+			log.Println("exit")
+			return nil
+		case <-timer.C:
+			timer.Reset(intvl)
+		}
+
 		log.Println("new capture ...")
 		if ok := camera.Read(&camImage); !ok {
 			return fmt.Errorf("cannot read device %d", cfg.CameraID)
@@ -162,9 +176,9 @@ func run(cfg configuration, icons map[string]image.Image) error {
 		icon := image.NewRGBA(bg.Bounds())
 		text := image.NewRGBA(bg.Bounds())
 
-		timer := time.NewTimer(time.Duration(60/cfg.CapturesPerMinute) * time.Second)
 		// draw a rectangle around each face on the original image along with informations
 		for _, f := range detectedFaces {
+			//
 			fr := f.FaceRectangle
 
 			// draw rectangle around detected face
@@ -203,13 +217,18 @@ func run(cfg configuration, icons map[string]image.Image) error {
 		// save image
 		if saveImage && len(detectedFaces) > 0 {
 			count++
-			err := imgio.Save(path.Join(cfg.SaveImagePath, fmt.Sprintf("%06d.jpg", count)), res, imgio.JPEG)
+			err := imgio.Save(path.Join(cfg.SaveImagePath, fmt.Sprintf("%06d.jpg", count)), res, imgio.JPEGEncoder(100))
 			if err != nil {
 				log.Println("ERROR:", errors.Wrap(err, "could not save image"))
 			}
 			if count == cfg.SaveImageMax {
 				count = 0
 			}
+		}
+
+		// no faces detected
+		if len(detectedFaces) == 0 {
+			fmt.Println("no faces detected")
 		}
 
 		// show image
@@ -219,14 +238,6 @@ func run(cfg configuration, icons map[string]image.Image) error {
 		}
 		window.IMShow(winImage)
 		window.WaitKey(1)
-
-		// wait or exit
-		select {
-		case <-exit:
-			log.Println("exit")
-			return nil
-		case <-timer.C:
-		}
 	}
 }
 
@@ -289,24 +300,24 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 	var buf bytes.Buffer
 	err := jpeg.Encode(&buf, img, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to encode jpeg")
 	}
 
 	req, err := http.NewRequest("POST", cfg.URIBase+cfg.URIParams, &buf)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to create request")
 	}
 
 	req.Header.Add("Content-Type", "application/octet-stream")
 	req.Header.Add("Ocp-Apim-Subscription-Key", cfg.SubscriptionKey)
 
-	/*
+	if cfg.Debug {
 		requestDump, err := httputil.DumpRequest(req, false)
 		if err != nil {
 			log.Println(errors.Wrap(err, "httputil.DumpRequest"))
 		}
 		fmt.Println(string(requestDump))
-	*/
+	}
 
 	client := &http.Client{
 		Timeout: time.Second * 10,
@@ -317,17 +328,17 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 	}
 	defer resp.Body.Close()
 
-	/*
+	if cfg.Debug {
 		responseDump, err := httputil.DumpResponse(resp, true)
 		if err != nil {
 			log.Println(errors.Wrap(err, "httputil.DumpResponse"))
 		}
 		fmt.Println(string(responseDump))
-	*/
+	}
 
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to read body")
 	}
 
 	if resp.StatusCode != 200 {
@@ -335,7 +346,7 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 		if err := json.Unmarshal(data, &e); err != nil {
 			return nil, errors.Wrap(err, "unmarshal api error failed")
 		}
-		return nil, fmt.Errorf("%s", e.Error.Message)
+		return nil, fmt.Errorf("API %s", e.Error.Message)
 	}
 
 	detectedFaces := faces{}

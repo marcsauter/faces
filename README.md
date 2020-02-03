@@ -2,8 +2,6 @@
 
 ## Requirements
 * [The Go Programming Language](https://golang.org/dl/)
-* [go-task - A task runner](https://github.com/go-task/task/releases)
-* [glide - Package Management for Go](https://glide.sh)
 * [GoCV and OpenCV](https://gocv.io/getting-started/)
 
 ## Installation
@@ -11,7 +9,7 @@
 Build faces:
 ```
 # cd <project>
-# task build
+# go build -a -o <target directory>/faces
 ```
 
 Edit faces configuration:
@@ -31,6 +29,6 @@ Run faces:
 ```
 
 ## Links
+* [Golang](https://golang.org/dl/)
 * [GoCV](https://gocv.io)
-* [OpenCV](https://golang.org/dl/)
-* [Face API - V1.0](https://westus.dev.cognitive.microsoft.com/docs/services/563879b61984550e40cbbe8d/operations/563879b61984550f30395236)
+* [Face documentation](https://docs.microsoft.com/en-us/azure/cognitive-services/face/)
