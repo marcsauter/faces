@@ -24,6 +24,7 @@ import (
 
 	"github.com/anthonynsimon/bild/blend"
 	"github.com/anthonynsimon/bild/imgio"
+	"github.com/gobuffalo/packr/v2"
 	"github.com/golang/freetype"
 	"github.com/golang/freetype/truetype"
 	"github.com/pkg/errors"
@@ -34,39 +35,36 @@ import (
 
 // Constants
 const (
+	DefaultConfigFile        = "faces.yaml"
 	DefaultCapturesPerMinute = 20
 	FontSize                 = 24.0
 )
 
 var (
-	red       = color.RGBA{255, 0, 0, 255}
-	blue      = color.RGBA{0, 0, 255, 255}
-	green     = color.RGBA{0, 255, 0, 255}
-	yellow    = color.RGBA{255, 255, 0, 255}
-	white     = color.RGBA{255, 255, 255, 255}
-	black     = color.RGBA{0, 0, 0, 255}
-	rectColor = white
-	textColor = white
-	ttf       = gobold.TTF
+	output    io.Writer = ioutil.Discard
+	red                 = color.RGBA{255, 0, 0, 255}
+	blue                = color.RGBA{0, 0, 255, 255}
+	green               = color.RGBA{0, 255, 0, 255}
+	yellow              = color.RGBA{255, 255, 0, 255}
+	white               = color.RGBA{255, 255, 255, 255}
+	black               = color.RGBA{0, 0, 0, 255}
+	rectColor           = white
+	textColor           = white
+	ttf                 = gobold.TTF
 	font      *truetype.Font
 	saveImage bool
 )
 
 type configuration struct {
-	CameraID            int    `yaml:"cameraId"`
-	SubscriptionKey     string `yaml:"subscriptionKey"`
-	URIBase             string `yaml:"uriBase"`
-	URIParams           string `yaml:"uriParams"`
-	CapturesPerMinute   int    `yaml:"capturesPerMinute"`
-	FrameStrenght       int    `yaml:"frameStrenght"`
-	SaveImagePath       string `yaml:"saveImagePath"`
-	SaveImageMax        int    `yaml:"saveImageMax"`
-	IconMale            string `yaml:"iconMale"`
-	IconFemale          string `yaml:"iconFemale"`
-	IconReadingGlasses  string `yaml:"iconReadingGlasses"`
-	IconSunGlasses      string `yaml:"iconSunGlasses"`
-	IconSwimmingGoggles string `yaml:"iconSwimmingGoggles"`
-	Debug               bool   `yaml:"debug"`
+	CameraID          int    `yaml:"cameraId"`
+	SubscriptionKey   string `yaml:"subscriptionKey"`
+	URIBase           string `yaml:"uriBase"`
+	URIParams         string `yaml:"uriParams"`
+	CapturesPerMinute int    `yaml:"capturesPerMinute"`
+	FrameStrenght     int    `yaml:"frameStrenght"`
+	SaveImagePath     string `yaml:"saveImagePath"`
+	SaveImageMax      int    `yaml:"saveImageMax"`
+	Debug             bool   `yaml:"debug"`
 }
 
 func init() {
@@ -78,14 +76,27 @@ func init() {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Printf("Usage: %s config.yaml\n", filepath.Base(os.Args[0]))
-		return
+	var filename string
+
+	switch len(os.Args) {
+	case 2:
+		filename = os.Args[1]
+	default:
+		ep, err := os.Executable()
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, d := range []string{filepath.Dir(ep), filepath.Join(filepath.Dir(ep), "..", "Resources")} {
+			if _, err := os.Stat(filepath.Join(d, DefaultConfigFile)); os.IsNotExist(err) {
+				continue
+			}
+			filename = filepath.Join(d, DefaultConfigFile)
+		}
 	}
 
 	// read configuration
 	cfg := configuration{}
-	data, err := ioutil.ReadFile(os.Args[1])
+	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,7 +104,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	icons, err := readIconImages(&cfg)
+	if cfg.Debug {
+		output = os.Stdout
+	}
+	output = os.Stdout
+	log.SetOutput(output)
+
+	box := packr.New("assets", "./assets")
+	icons, err := readIconImages(box, &cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -111,9 +129,9 @@ func main() {
 		saveImage = true
 	}
 
-	fmt.Fprintf(os.Stdout, "ctrl+c to exit\n")
+	fmt.Fprintf(output, "ctrl+c to exit\n")
 	if err := run(cfg, icons); err != nil {
-		fmt.Fprintf(os.Stderr, "%v", err)
+		fmt.Fprintf(output, "%v", err)
 		os.Exit(1)
 	}
 }
@@ -135,10 +153,9 @@ func run(cfg configuration, icons map[string]image.Image) error {
 	defer camImage.Close()
 
 	exit := make(chan os.Signal, 1)
-	signal.Ignore(syscall.SIGQUIT, syscall.SIGHUP)
-	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(exit, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
 
-	fmt.Printf("start reading camera device: %v\n", cfg.CameraID)
+	fmt.Fprintf(output, "start reading camera device: %v\n", cfg.CameraID)
 	intvl := time.Duration(60/cfg.CapturesPerMinute) * time.Second
 	timer := time.NewTimer(intvl)
 	var count int
@@ -205,7 +222,7 @@ func run(cfg configuration, icons map[string]image.Image) error {
 			}
 
 			// print to console
-			fmt.Printf("%.0f yo %s with %s looks %s\n", f.FaceAttributes.Age, f.FaceAttributes.Gender, f.FaceAttributes.Glasses, f.FaceAttributes.Emotion.String())
+			fmt.Fprintf(output, "%.0f yo %s with %s looks %s\n", f.FaceAttributes.Age, f.FaceAttributes.Gender, f.FaceAttributes.Glasses, f.FaceAttributes.Emotion.String())
 		}
 
 		// put layers together
@@ -228,7 +245,7 @@ func run(cfg configuration, icons map[string]image.Image) error {
 
 		// no faces detected
 		if len(detectedFaces) == 0 {
-			fmt.Println("no faces detected")
+			fmt.Fprintf(output, "no faces detected\n")
 		}
 
 		// show image
@@ -241,55 +258,52 @@ func run(cfg configuration, icons map[string]image.Image) error {
 	}
 }
 
-func readIconImages(cfg *configuration) (map[string]image.Image, error) {
+func readIconImages(box *packr.Box, cfg *configuration) (map[string]image.Image, error) {
 	icons := make(map[string]image.Image)
 
-	var r io.Reader
-	var err error
-
-	r, err = os.Open(cfg.IconMale)
+	d, err := box.Find("male.jpg")
 	if err != nil {
-		return nil, errors.Wrapf(err, "read icon %s", cfg.IconMale)
+		return nil, err
 	}
-	icons["male"], _, err = image.Decode(r)
+	icons["male"], _, err = image.Decode(bytes.NewReader(d))
 	if err != nil {
-		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconMale)
+		return nil, err
 	}
 
-	r, err = os.Open(cfg.IconFemale)
+	d, err = box.Find("female.jpg")
 	if err != nil {
-		return nil, errors.Wrapf(err, "read icon %s", cfg.IconFemale)
+		return nil, err
 	}
-	icons["female"], _, err = image.Decode(r)
+	icons["female"], _, err = image.Decode(bytes.NewReader(d))
 	if err != nil {
-		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconFemale)
-	}
-
-	r, err = os.Open(cfg.IconReadingGlasses)
-	if err != nil {
-		return nil, errors.Wrapf(err, "read icon %s", cfg.IconReadingGlasses)
-	}
-	icons["readingglasses"], _, err = image.Decode(r)
-	if err != nil {
-		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconReadingGlasses)
+		return nil, err
 	}
 
-	r, err = os.Open(cfg.IconSunGlasses)
+	d, err = box.Find("readingglasses.jpg")
 	if err != nil {
-		return nil, errors.Wrapf(err, "read icon %s", cfg.IconSunGlasses)
+		return nil, err
 	}
-	icons["sunglasses"], _, err = image.Decode(r)
+	icons["readingglasses"], _, err = image.Decode(bytes.NewReader(d))
 	if err != nil {
-		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconSunGlasses)
+		return nil, err
 	}
 
-	r, err = os.Open(cfg.IconSwimmingGoggles)
+	d, err = box.Find("sunglasses.jpg")
 	if err != nil {
-		return nil, errors.Wrapf(err, "read icon %s", cfg.IconSwimmingGoggles)
+		return nil, err
 	}
-	icons["swimminggoggles"], _, err = image.Decode(r)
+	icons["sunglasses"], _, err = image.Decode(bytes.NewReader(d))
 	if err != nil {
-		return nil, errors.Wrapf(err, "decode icon %s", cfg.IconSwimmingGoggles)
+		return nil, err
+	}
+
+	d, err = box.Find("swimminggoggles.jpg")
+	if err != nil {
+		return nil, err
+	}
+	icons["swimminggoggles"], _, err = image.Decode(bytes.NewReader(d))
+	if err != nil {
+		return nil, err
 	}
 
 	return icons, nil
@@ -316,7 +330,7 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 		if err != nil {
 			log.Println(errors.Wrap(err, "httputil.DumpRequest"))
 		}
-		fmt.Println(string(requestDump))
+		fmt.Fprintln(output, string(requestDump))
 	}
 
 	client := &http.Client{
@@ -333,7 +347,7 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 		if err != nil {
 			log.Println(errors.Wrap(err, "httputil.DumpResponse"))
 		}
-		fmt.Println(string(responseDump))
+		fmt.Fprintln(output, string(responseDump))
 	}
 
 	data, err := ioutil.ReadAll(resp.Body)

@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/anthonynsimon/bild v0.11.1
+	github.com/gobuffalo/packr/v2 v2.7.1
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0
 	github.com/pkg/errors v0.9.1
 	gocv.io/x/gocv v0.22.0
