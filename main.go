@@ -46,7 +46,7 @@ var (
 		".faces.yaml",
 		".faces.yml",
 	}
-	output    io.Writer = ioutil.Discard
+	output    io.Writer = ioutil.Discard // discard output if not in debug mode
 	red                 = color.RGBA{255, 0, 0, 255}
 	blue                = color.RGBA{0, 0, 255, 255}
 	green               = color.RGBA{0, 255, 0, 255}
@@ -60,6 +60,7 @@ var (
 	saveImage bool
 )
 
+// configuration for faces app
 type configuration struct {
 	CameraID          int    `yaml:"cameraId"`
 	SubscriptionKey   string `yaml:"subscriptionKey"`
@@ -72,6 +73,7 @@ type configuration struct {
 	Debug             bool   `yaml:"debug"`
 }
 
+// I know init is not cool ...
 func init() {
 	var err error
 	font, err = truetype.Parse(ttf)
@@ -80,7 +82,7 @@ func init() {
 	}
 }
 
-// findConfig
+// findConfig in different locations, first match will be returned
 func findConfig(args []string) string {
 	dirs := []string{}
 	// check args
@@ -165,7 +167,6 @@ func main() {
 	defer camImage.Close()
 
 	fmt.Fprintf(output, "start reading camera device: %v\n", cfg.CameraID)
-	intvl := time.Duration(60/cfg.CapturesPerMinute) * time.Second
 	var count int
 	for {
 		log.Println("new capture ...")
@@ -254,7 +255,7 @@ func main() {
 			log.Fatal(errors.Wrap(err, "convert jpg to mat"))
 		}
 		window.IMShow(winImage)
-		if window.WaitKey(int(intvl.Milliseconds())) == 3 {
+		if window.WaitKey(60000/cfg.CapturesPerMinute) == 3 {
 			window.Close()
 			os.Exit(0)
 		}
@@ -365,7 +366,7 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 
 	detectedFaces := faces{}
 	err = json.Unmarshal(data, &detectedFaces)
-	return detectedFaces, nil
+	return detectedFaces, err
 }
 
 // drawHLine draws a horizontal line
@@ -464,7 +465,7 @@ func (e emotion) String() string {
 			max = v
 		}
 	}
-	return fmt.Sprintf("%s", res)
+	return res
 }
 
 type apiError struct {
