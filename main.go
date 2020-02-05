@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"os/signal"
+	"os/user"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"image/color"
@@ -35,12 +35,17 @@ import (
 
 // Constants
 const (
-	DefaultConfigFile        = "faces.yaml"
 	DefaultCapturesPerMinute = 20
 	FontSize                 = 24.0
 )
 
 var (
+	configFileNames = []string{
+		"faces.yaml",
+		"faces.yml",
+		".faces.yaml",
+		".faces.yml",
+	}
 	output    io.Writer = ioutil.Discard
 	red                 = color.RGBA{255, 0, 0, 255}
 	blue                = color.RGBA{0, 0, 255, 255}
@@ -75,28 +80,41 @@ func init() {
 	}
 }
 
-func main() {
-	var filename string
-
-	switch len(os.Args) {
-	case 2:
-		filename = os.Args[1]
-	default:
-		ep, err := os.Executable()
-		if err != nil {
-			log.Fatal(err)
-		}
-		for _, d := range []string{filepath.Dir(ep), filepath.Join(filepath.Dir(ep), "..", "Resources")} {
-			if _, err := os.Stat(filepath.Join(d, DefaultConfigFile)); os.IsNotExist(err) {
-				continue
+// findConfig
+func findConfig(args []string) string {
+	dirs := []string{}
+	// check args
+	if len(args) > 1 && args[1] != "" {
+		return args[1]
+	}
+	// get user home
+	u, _ := user.Current()
+	if u != nil {
+		dirs = append(dirs, u.HomeDir)
+	}
+	// get executable path
+	e, _ := os.Executable()
+	if e != "" {
+		ep := filepath.Dir(e)
+		dirs = append(dirs, ep, filepath.Join(ep, "..", "Resources"))
+	}
+	for _, d := range dirs {
+		for _, c := range configFileNames {
+			n := filepath.Join(d, c)
+			if _, err := os.Stat(n); err == nil {
+				return n
 			}
-			filename = filepath.Join(d, DefaultConfigFile)
 		}
 	}
+	return ""
+}
+
+func main() {
+	runtime.LockOSThread()
 
 	// read configuration
 	cfg := configuration{}
-	data, err := ioutil.ReadFile(filename)
+	data, err := ioutil.ReadFile(findConfig(os.Args))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -104,12 +122,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// write to stdout for debugging
 	if cfg.Debug {
 		output = os.Stdout
 	}
-	output = os.Stdout
 	log.SetOutput(output)
 
+	// get the icons
 	box := packr.New("assets", "./assets")
 	icons, err := readIconImages(box, &cfg)
 	if err != nil {
@@ -129,49 +148,29 @@ func main() {
 		saveImage = true
 	}
 
-	fmt.Fprintf(output, "ctrl+c to exit\n")
-	if err := run(cfg, icons); err != nil {
-		fmt.Fprintf(output, "%v", err)
-		os.Exit(1)
-	}
-}
-
-func run(cfg configuration, icons map[string]image.Image) error {
 	// open camera
 	camera, err := gocv.VideoCaptureDevice(cfg.CameraID)
 	if err != nil {
-		return errors.Wrap(err, "capture device")
+		log.Fatal(errors.Wrap(err, "capture device"))
 	}
 	defer camera.Close()
 
 	// open display window
 	window := gocv.NewWindow("Face Detect")
+	window.SetWindowProperty(gocv.WindowPropertyAutosize, gocv.WindowAutosize)
 	defer window.Close()
 
 	// prepare image matrix
 	camImage := gocv.NewMat()
 	defer camImage.Close()
 
-	exit := make(chan os.Signal, 1)
-	signal.Notify(exit, os.Interrupt, syscall.SIGQUIT, syscall.SIGTERM)
-
 	fmt.Fprintf(output, "start reading camera device: %v\n", cfg.CameraID)
 	intvl := time.Duration(60/cfg.CapturesPerMinute) * time.Second
-	timer := time.NewTimer(intvl)
 	var count int
 	for {
-		// wait or exit
-		select {
-		case <-exit:
-			log.Println("exit")
-			return nil
-		case <-timer.C:
-			timer.Reset(intvl)
-		}
-
 		log.Println("new capture ...")
 		if ok := camera.Read(&camImage); !ok {
-			return fmt.Errorf("cannot read device %d", cfg.CameraID)
+			log.Fatal(fmt.Errorf("cannot read device %d", cfg.CameraID))
 		}
 		if camImage.Empty() {
 			continue
@@ -192,6 +191,7 @@ func run(cfg configuration, icons map[string]image.Image) error {
 		rect := image.NewRGBA(bg.Bounds())
 		icon := image.NewRGBA(bg.Bounds())
 		text := image.NewRGBA(bg.Bounds())
+		addLabel(text, 0, 0, textColor, "ctrl+c to quit")
 
 		// draw a rectangle around each face on the original image along with informations
 		for _, f := range detectedFaces {
@@ -251,13 +251,17 @@ func run(cfg configuration, icons map[string]image.Image) error {
 		// show image
 		winImage, err := gocv.ImageToMatRGBA(res)
 		if err != nil {
-			return errors.Wrap(err, "convert jpg to mat")
+			log.Fatal(errors.Wrap(err, "convert jpg to mat"))
 		}
 		window.IMShow(winImage)
-		window.WaitKey(1)
+		if window.WaitKey(int(intvl.Milliseconds())) == 3 {
+			window.Close()
+			os.Exit(0)
+		}
 	}
 }
 
+// readIconImages from box
 func readIconImages(box *packr.Box, cfg *configuration) (map[string]image.Image, error) {
 	icons := make(map[string]image.Image)
 
@@ -325,13 +329,11 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 	req.Header.Add("Content-Type", "application/octet-stream")
 	req.Header.Add("Ocp-Apim-Subscription-Key", cfg.SubscriptionKey)
 
-	if cfg.Debug {
-		requestDump, err := httputil.DumpRequest(req, false)
-		if err != nil {
-			log.Println(errors.Wrap(err, "httputil.DumpRequest"))
-		}
-		fmt.Fprintln(output, string(requestDump))
+	requestDump, err := httputil.DumpRequest(req, false)
+	if err != nil {
+		log.Println(errors.Wrap(err, "httputil.DumpRequest"))
 	}
+	fmt.Fprintln(output, string(requestDump))
 
 	client := &http.Client{
 		Timeout: time.Second * 10,
@@ -342,13 +344,11 @@ func analyze(cfg *configuration, img image.Image) (faces, error) {
 	}
 	defer resp.Body.Close()
 
-	if cfg.Debug {
-		responseDump, err := httputil.DumpResponse(resp, true)
-		if err != nil {
-			log.Println(errors.Wrap(err, "httputil.DumpResponse"))
-		}
-		fmt.Fprintln(output, string(responseDump))
+	responseDump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		log.Println(errors.Wrap(err, "httputil.DumpResponse"))
 	}
+	fmt.Fprintln(output, string(responseDump))
 
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
