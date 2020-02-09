@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/user"
 	"path"
@@ -46,32 +46,19 @@ var (
 		".faces.yaml",
 		".faces.yml",
 	}
-	output    io.Writer = ioutil.Discard // discard output if not in debug mode
-	red                 = color.RGBA{255, 0, 0, 255}
-	blue                = color.RGBA{0, 0, 255, 255}
-	green               = color.RGBA{0, 255, 0, 255}
-	yellow              = color.RGBA{255, 255, 0, 255}
-	white               = color.RGBA{255, 255, 255, 255}
-	black               = color.RGBA{0, 0, 0, 255}
-	rectColor           = white
-	textColor           = white
-	ttf                 = gobold.TTF
+	output    = ioutil.Discard // discard output if not in debug mode
+	red       = color.RGBA{255, 0, 0, 255}
+	blue      = color.RGBA{0, 0, 255, 255}
+	green     = color.RGBA{0, 255, 0, 255}
+	yellow    = color.RGBA{255, 255, 0, 255}
+	white     = color.RGBA{255, 255, 255, 255}
+	black     = color.RGBA{0, 0, 0, 255}
+	rectColor = white
+	textColor = white
+	ttf       = gobold.TTF
 	font      *truetype.Font
 	saveImage bool
 )
-
-// configuration for faces app
-type configuration struct {
-	CameraID          int    `yaml:"cameraId"`
-	SubscriptionKey   string `yaml:"subscriptionKey"`
-	URIBase           string `yaml:"uriBase"`
-	URIParams         string `yaml:"uriParams"`
-	CapturesPerMinute int    `yaml:"capturesPerMinute"`
-	FrameStrenght     int    `yaml:"frameStrenght"`
-	SaveImagePath     string `yaml:"saveImagePath"`
-	SaveImageMax      int    `yaml:"saveImageMax"`
-	Debug             bool   `yaml:"debug"`
-}
 
 // I know init is not cool ...
 func init() {
@@ -80,6 +67,45 @@ func init() {
 	if err != nil {
 		log.Fatal(errors.Wrap(err, "could not parse font"))
 	}
+}
+
+// configuration for faces app
+type config struct {
+	CameraID          int    `yaml:"cameraId"`
+	SubscriptionKey   string `yaml:"subscriptionKey"`
+	URIBase           string `yaml:"uriBase"`
+	URIPath           string `yaml:"uriPath"`
+	URIParams         string `yaml:"uriParams"`
+	uri               string
+	CapturesPerMinute int    `yaml:"capturesPerMinute"`
+	FrameStrenght     int    `yaml:"frameStrenght"`
+	SaveImagePath     string `yaml:"saveImagePath"`
+	SaveImageMax      int    `yaml:"saveImageMax"`
+	Debug             bool   `yaml:"debug"`
+}
+
+func newConfig(file string) (*config, error) {
+	// read configuration
+	c := config{}
+	data, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil, err
+	}
+	u, err := url.Parse(c.URIBase)
+	if err != nil {
+		return nil, err
+	}
+	u.Path = c.URIPath
+	u.RawQuery = c.URIParams
+	c.uri = u.String()
+	return &c, nil
+}
+
+func (c *config) URI() string {
+	return c.uri
 }
 
 // findConfig in different locations, first match will be returned
@@ -114,13 +140,8 @@ func findConfig(args []string) string {
 func main() {
 	runtime.LockOSThread()
 
-	// read configuration
-	cfg := configuration{}
-	data, err := ioutil.ReadFile(findConfig(os.Args))
+	cfg, err := newConfig(findConfig(os.Args))
 	if err != nil {
-		log.Fatal(err)
-	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		log.Fatal(err)
 	}
 
@@ -132,7 +153,7 @@ func main() {
 
 	// get the icons
 	box := packr.New("assets", "./assets")
-	icons, err := readIconImages(box, &cfg)
+	icons, err := readIconImages(box, cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -158,7 +179,7 @@ func main() {
 	defer camera.Close()
 
 	// open display window
-	window := gocv.NewWindow("Face Detect")
+	window := gocv.NewWindow("Face Detect (ctrl+c to quit)")
 	window.SetWindowProperty(gocv.WindowPropertyAutosize, gocv.WindowAutosize)
 	defer window.Close()
 
@@ -182,7 +203,7 @@ func main() {
 			continue
 		}
 
-		detectedFaces, err := analyze(&cfg, img)
+		detectedFaces, err := analyze(cfg, img)
 		if err != nil {
 			log.Println("ERROR:", err)
 			continue
@@ -192,7 +213,6 @@ func main() {
 		rect := image.NewRGBA(bg.Bounds())
 		icon := image.NewRGBA(bg.Bounds())
 		text := image.NewRGBA(bg.Bounds())
-		addLabel(text, 0, 0, textColor, "ctrl+c to quit")
 
 		// draw a rectangle around each face on the original image along with informations
 		for _, f := range detectedFaces {
@@ -263,7 +283,7 @@ func main() {
 }
 
 // readIconImages from box
-func readIconImages(box *packr.Box, cfg *configuration) (map[string]image.Image, error) {
+func readIconImages(box *packr.Box, cfg *config) (map[string]image.Image, error) {
 	icons := make(map[string]image.Image)
 
 	d, err := box.Find("male.jpg")
@@ -315,14 +335,14 @@ func readIconImages(box *packr.Box, cfg *configuration) (map[string]image.Image,
 }
 
 // analyze image using Face API
-func analyze(cfg *configuration, img image.Image) (faces, error) {
+func analyze(cfg *config, img image.Image) (faces, error) {
 	var buf bytes.Buffer
 	err := jpeg.Encode(&buf, img, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to encode jpeg")
 	}
 
-	req, err := http.NewRequest("POST", cfg.URIBase+cfg.URIParams, &buf)
+	req, err := http.NewRequest("POST", cfg.URI(), &buf)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request")
 	}
