@@ -19,13 +19,14 @@
 
 - download/install [rsrc](https://github.com/akavel/rsrc)
 ```bash
-# rsrc -ico=icons/faces.ico -o faces.syso
+# go get github.com/josephspurrier/goversioninfo/cmd/goversioninfo
+# go generate
 ```
 
 ### Build faces
 ```bash
 # cd <project>
-# go build -a -o <target directory>/faces
+# go build -a -o <target directory>/faces[.exe]
 ```
 
 ### Build macOS App

@@ -1,3 +1,4 @@
+//go:generate goversioninfo -icon=icons/faces.ico versioninfo.json
 package main
 
 import (
