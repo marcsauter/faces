@@ -278,7 +278,7 @@ func main() {
 		window.IMShow(winImage)
 		if window.WaitKey(60000/cfg.CapturesPerMinute) == 3 {
 			window.Close()
-			os.Exit(0)
+			break
 		}
 	}
 }

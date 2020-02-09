@@ -15,18 +15,17 @@
 # packr2
 ```
 
-### Build syso file for Windows
-
-- download/install [rsrc](https://github.com/akavel/rsrc)
-```bash
-# go get github.com/josephspurrier/goversioninfo/cmd/goversioninfo
-# go generate
-```
-
 ### Build faces
 ```bash
 # cd <project>
 # go build -a -o <target directory>/faces[.exe]
+```
+
+### Build Windows App
+> Write a "GUI binary" instead of a "console binary"
+```bash
+# cd <project>
+# go build -a -ldflags "-H windowsgui" -o <target directory>/faces.exe
 ```
 
 ### Build macOS App
