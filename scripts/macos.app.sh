@@ -29,5 +29,5 @@ cat << EOF > ${DIR}/Faces.app/Contents/Info.plist
 </dict>
 </plist>
 EOF
-go build -a -o ${DIR}/Faces.app/Contents/MacOS/faces main.go main-packr.go
+go build -a -o ${DIR}/Faces.app/Contents/MacOS/faces
 cp icons/faces.icns ${DIR}/Faces.app/Contents/Resources
